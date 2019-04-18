@@ -23,7 +23,6 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
-import com.google.android.gms.maps.model.Polygon;
 import com.google.android.gms.maps.model.PolygonOptions;
 import com.google.maps.android.SphericalUtil;
 
@@ -273,7 +272,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
 
             String area_str = String.format("%.02f", area);
-            Polygon polygon = mMap.addPolygon(rectOptions.fillColor(0x556aa0f7).strokeWidth(1));
+            mMap.addPolygon(rectOptions.fillColor(0x556aa0f7).strokeWidth(1));
             mMap.addMarker(new MarkerOptions().position(new LatLng(center.latitude, center.longitude)).title(area_str + ending).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_CYAN)));
             polygonExist = true;
 
