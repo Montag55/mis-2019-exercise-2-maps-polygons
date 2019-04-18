@@ -1,6 +1,7 @@
 package com.example.misexercuse_2;
 
 import android.Manifest;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationListener;
@@ -16,16 +17,22 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
 
+import java.util.Map;
+
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
 
-    public static final int MY_PERMISSIONS_REQUEST_LOCATION = 1;
-    private GoogleMap mMap;
-    private EditText textInput;
-    LocationManager locationManager;
-    LocationListener locationListener;
+    private static final int MY_PERMISSIONS_REQUEST_LOCATION = 1;
+    private GoogleMap mMap = null;
+    private EditText textInput = null;
+    private LocationManager locationManager = null;
+    private LocationListener locationListener = null;
+    private SharedPreferences.Editor editor = null;
+    private SharedPreferences pref = null;
+    private int markerCount = 0;
 
 
 
@@ -38,8 +45,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mapFragment.getMapAsync(this);
 
         textInput = (EditText) findViewById(R.id.textInput);
+        pref = (SharedPreferences) getApplicationContext().getSharedPreferences("Markers", MODE_PRIVATE);
+        editor = (SharedPreferences.Editor) getSharedPreferences("Markers", MODE_PRIVATE).edit();
 
-
+        // for unique marker ID, get marker count from previous session (also pref.getAll() map size)
+        markerCount = pref.getInt("markerCount", 0);
     }
 
     /**
@@ -54,7 +64,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
-
 
         locationManager = (LocationManager) getSystemService(MapsActivity.this.LOCATION_SERVICE);
         locationListener = new LocationListener() {
@@ -79,23 +88,37 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
         };
 
+        checkLocationPermission();
+        updatePreviousSession();
+
         mMap.setOnMapLongClickListener(new GoogleMap.OnMapLongClickListener() {
             @Override
             public void onMapLongClick(LatLng point) {
-                mMap.addMarker(new MarkerOptions().position(point).title(textInput.getText().toString()));
-                String lat = String.format("%.02f", point.latitude);
-                String lon = String.format("%.02f", point.longitude);
-                Toast.makeText(MapsActivity.this, "New location:\n" + textInput.getText().toString() + "(" + lat + ", " + lon + ")" , Toast.LENGTH_LONG).show();
+            mMap.addMarker(new MarkerOptions().position(point).title(textInput.getText().toString()));
+
+            String marker_str = Double.toString(point.latitude) + "@" + Double.toString(point.longitude);
+            editor.putString( "ID" + Integer.toString(markerCount) + "@" + textInput.getText().toString(), marker_str);
+
+            markerCount++;
+            editor.putInt("markerCount", markerCount);
+
+            editor.commit();
+
+            String lat = String.format("%.02f", point.latitude);
+            String lon = String.format("%.02f", point.longitude);
+            Toast.makeText(MapsActivity.this, "New location:\n" + textInput.getText().toString() + "(" + lat + ", " + lon + ")" , Toast.LENGTH_LONG).show();
             }
         });
-
-        checkLocationPermission();
     }
 
+    /**
+     * Center and zoom in on current location. Sets marker of different color:
+     * https://developers.google.com/maps/documentation/android-sdk/marker
+     */
     public void centreMapOnLocation(Location location, String title) {
         LatLng coordinate = new LatLng(location.getLatitude(), location.getLongitude());
         mMap.clear();
-        mMap.addMarker(new MarkerOptions().position(coordinate).title(title));
+        mMap.addMarker(new MarkerOptions().position(coordinate).title(title).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)));
         mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(coordinate, 15));
 
         String lat = String.format("%.02f", coordinate.latitude);
@@ -103,6 +126,10 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         Toast.makeText(MapsActivity.this, "Your location:\n" + textInput.getText().toString() + "(" + lat + ", " + lon + ")" , Toast.LENGTH_LONG).show();
     }
 
+    /**
+     * Request permission to access GPS FINE_LOCATION if not yet granted.
+     * If granted retrieve current location.
+     */
     public void checkLocationPermission() {
 
         if (ContextCompat.checkSelfPermission(MapsActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
@@ -118,6 +145,10 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
     }
 
+    /**
+     * Automatically called after calling requestPermission().
+     * If permission granted, retrieve current location.
+     */
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -136,6 +167,20 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
         } else {
             Toast.makeText(MapsActivity.this, "Permission to access GPS denied", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * Display markers from previous session, counter also in pref, skipp it!
+     */
+    public void updatePreviousSession(){
+        Map<String,?> keys = pref.getAll();
+        for(Map.Entry<String,?> entry : keys.entrySet()){
+            if(!entry.getKey().equals("markerCount")){
+                String [] key_str = entry.getKey().split("@", 2);
+                String [] val_str = entry.getValue().toString().split("@", 2);
+                mMap.addMarker(new MarkerOptions().position(new LatLng(Double.parseDouble(val_str[0]), Double.parseDouble(val_str[1]))).title(key_str[1]));
+            }
         }
     }
 }
