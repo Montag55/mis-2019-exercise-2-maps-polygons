@@ -10,6 +10,8 @@ import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
 import android.support.v4.content.ContextCompat;
+import android.view.View;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
 
@@ -19,8 +21,15 @@ import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.Polygon;
+import com.google.android.gms.maps.model.PolygonOptions;
+import com.google.maps.android.SphericalUtil;
 
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
@@ -33,9 +42,14 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private SharedPreferences.Editor editor = null;
     private SharedPreferences pref = null;
     private int markerCount = 0;
+    private List<Marker> selectedMarkers = null;
+    private Boolean polygonExist = false;
+    private Button button_area = null;
 
 
-
+    /**
+     * Not clearing Shared preferences at any point, markers stay forever
+     */
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -47,9 +61,28 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         textInput = (EditText) findViewById(R.id.textInput);
         pref = (SharedPreferences) getApplicationContext().getSharedPreferences("Markers", MODE_PRIVATE);
         editor = (SharedPreferences.Editor) getSharedPreferences("Markers", MODE_PRIVATE).edit();
+        selectedMarkers = new ArrayList<Marker>();
 
         // for unique marker ID, get marker count from previous session (also pref.getAll() map size)
         markerCount = pref.getInt("markerCount", 0);
+
+        button_area = (Button) findViewById(R.id.button_area);
+        button_area.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if(polygonExist == false) {
+                    calcPolygonArea();
+                    button_area.setText("End Polygon");
+                    polygonExist = true;
+                } else {
+                    mMap.clear();
+                    selectedMarkers.clear();
+                    checkLocationPermission();
+                    button_area.setText("Start Polygon");
+                    polygonExist = false;
+                }
+            }
+        });
     }
 
     /**
@@ -107,6 +140,23 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             String lat = String.format("%.02f", point.latitude);
             String lon = String.format("%.02f", point.longitude);
             Toast.makeText(MapsActivity.this, "New location:\n" + textInput.getText().toString() + "(" + lat + ", " + lon + ")" , Toast.LENGTH_LONG).show();
+            }
+        });
+
+        mMap.setOnMarkerClickListener(new GoogleMap.OnMarkerClickListener() {
+            @Override
+            public boolean onMarkerClick(Marker marker) {
+
+                marker.showInfoWindow();
+                if(selectedMarkers.contains(marker)) {
+                    marker.setIcon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED));
+                    selectedMarkers.remove(marker);
+                } else {
+                    marker.setIcon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN));
+                    selectedMarkers.add(marker);
+                }
+
+                return true;
             }
         });
     }
@@ -183,4 +233,74 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
         }
     }
+
+    /**
+     * Computes area of polygon spanning selected markers:
+     * https://developers.google.com/maps/documentation/android-sdk/polygon-tutorial#add_polygons_to_represent_areas_on_the_map
+     * http://googlemaps.github.io/android-maps-utils/javadoc/com/google/maps/android/SphericalUtil.html
+     */
+    public void calcPolygonArea(){
+
+        if (selectedMarkers.size() >= 3) {
+
+            double x = 0, y = 0;
+            ArrayList<LatLng> polygon_verts = new ArrayList<>();
+            PolygonOptions rectOptions = new PolygonOptions();
+
+            for (Marker tmp : selectedMarkers) {
+                polygon_verts.add(tmp.getPosition());
+                y += tmp.getPosition().longitude;
+                x += tmp.getPosition().latitude;
+            }
+
+            LatLng center = new LatLng(x/selectedMarkers.size(), y/selectedMarkers.size());
+            polygon_verts = sortPoints(polygon_verts, center);
+            rectOptions.addAll(polygon_verts);
+
+            double area = SphericalUtil.computeArea(polygon_verts);
+            String ending = null;
+
+            if(area < 10000) {
+                ending = " m2";
+            }
+            else if(area >= 10000 && area< 1000000){
+                ending = " ha";
+                area /= 10000;
+            }
+            else{
+                ending = " km²";
+                area /= 1e+6;
+            }
+
+            String area_str = String.format("%.02f", area);
+            Polygon polygon = mMap.addPolygon(rectOptions.fillColor(0x556aa0f7).strokeWidth(1));
+            mMap.addMarker(new MarkerOptions().position(new LatLng(center.latitude, center.longitude)).title(area_str + ending).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_CYAN)));
+            polygonExist = true;
+
+        } else {
+            Toast.makeText(MapsActivity.this, "Not enough locations selected, a minimum of 3 have to be selected", Toast.LENGTH_LONG).show();
+        }
+
+    }
+
+    /**
+     * Sort points by angle to center using Bubblesort.
+     */
+    public ArrayList<LatLng> sortPoints(ArrayList<LatLng> points, LatLng center){
+
+        for(int i = 1; i < points.size(); i++){
+            System.out.println("i: " + i);
+            for(int j = 0; j < points.size() - i; j++){
+                if( Math.atan2(points.get(j).longitude - center.longitude, points.get(j).latitude - center.latitude) >
+                    Math.atan2(points.get(j+1).longitude - center.longitude, points.get(j+1).latitude - center.latitude)){
+
+                    LatLng tmp = points.get(j);
+                    points.set(j, points.get(j+1));
+                    points.set(j+1, tmp);
+                }
+            }
+        }
+        return points;
+    }
+
 }
